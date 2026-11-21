@@ -171,7 +171,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     output = f"Comando inválido: {command}. Digite 'help'."
                 ws.send(json.dumps({"type": "output", "text": output}, ensure_ascii=False))
             except Exception as exc:
-                ws.send(json.dumps({"type": "error", "text": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+                error_text = f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, UpstreamError) and exc.diagnostics:
+                    error_text += "\\nDiagnóstico: " + json.dumps(exc.diagnostics, ensure_ascii=False, indent=2)
+                ws.send(json.dumps({"type": "error", "text": error_text}, ensure_ascii=False))
 
     def load_song(artist: str, song: str) -> dict[str, Any]:
         key = f"song:{artist.strip().casefold()}:{song.strip().casefold()}"
@@ -245,7 +248,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.errorhandler(UpstreamError)
     def upstream_error(exc: UpstreamError):
-        return jsonify({"error": "upstream_error", "message": str(exc)}), 502
+        payload = {"error": "upstream_error", "message": str(exc)}
+        if exc.diagnostics:
+            payload["diagnostics"] = exc.diagnostics
+        return jsonify(payload), 502
 
     @app.errorhandler(ValueError)
     def invalid_value(exc: ValueError):
