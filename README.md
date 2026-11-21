@@ -23,7 +23,7 @@ Este repositório usa múltiplos serviços Vercel declarados em `vercel.json`. N
 
 - Serviço `app`, raiz `.`, entrypoint `api:app`.
 - Serviço `app-two`, raiz `app`, entrypoint `api:app`.
-- Serviço `cli`, raiz `cli`.
+- A ferramenta de terminal em `cli/` permanece no repositório, mas não é um serviço web e, portanto, não é publicada como serviço da Vercel.
 
 As regras de rewrite existentes encaminham `/dashboard/*` para `app-two` e os demais caminhos para `app`. Os caminhos recebidos pela aplicação permanecem os caminhos originais, então as rotas Flask precisam corresponder a esses prefixos.
 
