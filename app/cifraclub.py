@@ -36,6 +36,10 @@ class ProviderAccessDisabled(CifraClubError):
 class UpstreamError(CifraClubError):
     """Raised when the upstream provider cannot be reached or rejects a request."""
 
+    def __init__(self, message: str, diagnostics: Optional[dict[str, Any]] = None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
 
 class SongNotFound(CifraClubError):
     """Raised when the provider reports that the requested song does not exist."""
@@ -419,6 +423,28 @@ class CifraClub:
                 time.sleep(wait)
             type(self)._last_request_at = time.monotonic()
 
+    @staticmethod
+    def _response_diagnostics(response: httpx.Response) -> dict[str, Any]:
+        """Return safe response metadata without exposing cookies, tokens, or query strings."""
+        parsed = urlparse(str(response.url))
+        headers = response.headers
+        diagnostics: dict[str, Any] = {
+            "status_code": response.status_code,
+            "host": parsed.hostname,
+            "path": parsed.path,
+            "content_type": headers.get("content-type"),
+            "server": headers.get("server"),
+            "via": headers.get("via"),
+            "request_id": (
+                headers.get("x-request-id")
+                or headers.get("request-id")
+                or headers.get("x-correlation-id")
+            ),
+            "cf_ray": headers.get("cf-ray"),
+            "retry_after": headers.get("retry-after"),
+        }
+        return {key: value for key, value in diagnostics.items() if value is not None}
+
     def _fetch(self, url: str) -> str:
         self._assert_fetch_allowed()
         last_error: Optional[Exception] = None
@@ -456,11 +482,24 @@ class CifraClub:
                             if response.status_code == 404:
                                 raise SongNotFound("A música não foi encontrada na origem.")
                             if response.status_code in (401, 403, 451):
-                                raise UpstreamError(f"A origem recusou a solicitação (HTTP {response.status_code}).")
+                                diagnostics = self._response_diagnostics(response)
+                                raise UpstreamError(
+                                    f"A origem recusou a solicitação (HTTP {response.status_code}). "
+                                    "A API interrompeu novas tentativas e não acionou fallback de navegador.",
+                                    diagnostics=diagnostics,
+                                )
                             if response.status_code == 429:
-                                raise UpstreamError("A origem aplicou limite de requisições (HTTP 429).")
+                                diagnostics = self._response_diagnostics(response)
+                                raise UpstreamError(
+                                    "A origem aplicou limite de requisições (HTTP 429).",
+                                    diagnostics=diagnostics,
+                                )
                             if response.status_code >= 500:
-                                raise UpstreamError(f"A origem apresentou erro HTTP {response.status_code}.")
+                                diagnostics = self._response_diagnostics(response)
+                                raise UpstreamError(
+                                    f"A origem apresentou erro HTTP {response.status_code}.",
+                                    diagnostics=diagnostics,
+                                )
                             response.raise_for_status()
                             chunks: list[bytes] = []
                             size = 0
@@ -476,11 +515,15 @@ class CifraClub:
                     raise
                 except (httpx.HTTPError, UpstreamError) as exc:
                     last_error = exc
-                    if isinstance(exc, UpstreamError) and "HTTP 429" in str(exc):
+                    # Provider refusals/rate limits/server responses are terminal:
+                    # do not retry or switch to a browser-based request path.
+                    if isinstance(exc, UpstreamError) and exc.diagnostics:
                         raise
                     if attempt >= self.settings.max_retries:
                         break
                     time.sleep(min(2 ** attempt, 4))
+        if isinstance(last_error, UpstreamError) and last_error.diagnostics:
+            raise last_error
         if self.settings.browser_fallback and self.settings.selenium_remote_url:
             return self._fetch_with_browser(url)
         raise UpstreamError(f"Não foi possível obter a página: {last_error or 'erro desconhecido'}")
