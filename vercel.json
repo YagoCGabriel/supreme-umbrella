@@ -10,10 +10,6 @@
       "root": "app",
       "framework": "flask",
       "entrypoint": "api:app"
-    },
-    "cli": {
-      "root": "cli",
-      "runtime": "python"
     }
   },
   "rewrites": [
