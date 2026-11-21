@@ -173,7 +173,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             except Exception as exc:
                 error_text = f"{type(exc).__name__}: {exc}"
                 if isinstance(exc, UpstreamError) and exc.diagnostics:
-                    error_text += "\\nDiagnóstico: " + json.dumps(exc.diagnostics, ensure_ascii=False, indent=2)
+                    error_text += "\nDiagnóstico: " + json.dumps(exc.diagnostics, ensure_ascii=False, indent=2)
                 ws.send(json.dumps({"type": "error", "text": error_text}, ensure_ascii=False))
 
     def load_song(artist: str, song: str) -> dict[str, Any]:
