@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "app": {
+      "root": ".",
+      "framework": "flask"
+    },
+    "app-2": {
+      "root": "app",
+      "framework": "flask"
+    },
+    "cli": {
+      "root": "cli",
+      "runtime": "python"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/dashboard/(.*)",
+      "destination": {
+        "service": "app-2"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    }
+  ]
+}
