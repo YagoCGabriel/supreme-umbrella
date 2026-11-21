@@ -101,6 +101,11 @@ A coleta remota somente é ativada quando **as duas** variáveis `CIFRACLUB_FETC
 
 | Método | Endpoint | Descrição |
 |---|---|---|
+| `GET` | `/terminal` | Interface de terminal no navegador |
+| `WS` | `/v1/terminal/ws` | Canal WebSocket do terminal interativo |
+
+| Método | Endpoint | Descrição |
+|---|---|---|
 | `GET` | `/` | Informações básicas da API |
 | `GET` | `/health` | Alias de health check |
 | `GET` | `/v1/health` | Estado dos componentes e da coleta remota |
