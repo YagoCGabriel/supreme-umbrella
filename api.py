@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
+from flask_sock import Sock
 
 try:  # Supports both `python api.py` and package-based test imports.
     from .cache import TTLCache
@@ -41,6 +44,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         app.config.update(test_config)
 
     parser = CifraClubParser()
+    sock = Sock(app)
 
     @app.get("/")
     def home():
@@ -52,12 +56,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             "legacy_endpoint": "/artists/<artist>/songs/<song>",
         })
 
+    @app.get("/terminal")
+    def terminal_page():
+        return render_template("terminal.html")
+
     @app.get("/v1/docs")
     def docs():
         return jsonify({
             "version": API_VERSION,
             "endpoints": [
                 {"method": "GET", "path": "/v1/health", "description": "Estado dos componentes"},
+                {"method": "GET", "path": "/terminal", "description": "Terminal web para comandos permitidos"},
+                {"method": "WEBSOCKET", "path": "/v1/terminal/ws", "description": "Sessão interativa do terminal web"},
                 {"method": "POST", "path": "/v1/parse/html", "description": "Analisa HTML fornecido pelo cliente"},
                 {"method": "GET", "path": "/v1/songs/{artist}/{song}", "description": "Música estruturada"},
                 {"method": "GET", "path": "/v1/songs/{artist}/{song}/metadata", "description": "Metadados"},
@@ -101,6 +111,67 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return jsonify(result), status
         except ExtractionError as exc:
             return jsonify({"error": "extraction_failed", "message": str(exc)}), 422
+
+
+    @sock.route("/v1/terminal/ws")
+    def terminal_socket(ws):
+        """Interactive, allowlisted command interface; never executes OS shell input."""
+        ws.send(json.dumps({"type": "ready", "text": "Cifra Club API terminal conectado. Digite 'help' para ver os comandos."}))
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+            try:
+                if len(raw) > 1000:
+                    raise ValueError("Comando muito longo (limite de 1000 caracteres).")
+                parts = shlex.split(raw)
+                if not parts:
+                    ws.send(json.dumps({"type": "prompt"}))
+                    continue
+                command, *args = parts
+                if command in {"help", "ajuda"}:
+                    output = (
+                        "Comandos disponíveis:\n"
+                        "  help                 Mostra esta ajuda\n"
+                        "  version              Versão da API\n"
+                        "  health               Estado da API e componentes\n"
+                        "  endpoints            Lista endpoints principais\n"
+                        "  cifra <artista> <música>  Consulta uma cifra (requer coleta autorizada)\n"
+                        "  clear                Limpa a tela do terminal"
+                    )
+                elif command == "version" and not args:
+                    output = f"Cifra Club API v{API_VERSION}"
+                elif command == "health" and not args:
+                    fetch_enabled = os.getenv("CIFRACLUB_FETCH_ENABLED", "false").lower() == "true"
+                    fetch_authorized = os.getenv("CIFRACLUB_FETCH_AUTHORIZED", "false").lower() == "true"
+                    output = json.dumps({
+                        "status": "ok",
+                        "version": API_VERSION,
+                        "provider_fetch": "enabled" if fetch_enabled and fetch_authorized else "disabled",
+                    }, ensure_ascii=False, indent=2)
+                elif command == "endpoints" and not args:
+                    output = "\n".join([
+                        "GET  /v1/health",
+                        "GET  /v1/docs",
+                        "POST /v1/parse/html",
+                        "GET  /v1/songs/<artist>/<song>",
+                        "GET  /v1/songs/<artist>/<song>/chords",
+                        "GET  /v1/songs/<artist>/<song>/sections",
+                        "GET  /v1/songs/<artist>/<song>/tabs",
+                    ])
+                elif command == "cifra" and len(args) >= 2:
+                    artist, song = args[0], " ".join(args[1:])
+                    result = CifraClub().cifra(artist, song)
+                    lines = result.get("cifra") or []
+                    output = "\n".join(lines) if lines else json.dumps(result, ensure_ascii=False, indent=2)
+                elif command == "clear" and not args:
+                    ws.send(json.dumps({"type": "clear"}))
+                    continue
+                else:
+                    output = f"Comando inválido: {command}. Digite 'help'."
+                ws.send(json.dumps({"type": "output", "text": output}, ensure_ascii=False))
+            except Exception as exc:
+                ws.send(json.dumps({"type": "error", "text": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
 
     def load_song(artist: str, song: str) -> dict[str, Any]:
         key = f"song:{artist.strip().casefold()}:{song.strip().casefold()}"
