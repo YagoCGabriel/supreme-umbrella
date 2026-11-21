@@ -1,0 +1,28 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: ${PORT:-3000}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      CIFRACLUB_FETCH_ENABLED: ${CIFRACLUB_FETCH_ENABLED:-false}
+      CIFRACLUB_FETCH_AUTHORIZED: ${CIFRACLUB_FETCH_AUTHORIZED:-false}
+      SCRAPER_TIMEOUT_SECONDS: ${SCRAPER_TIMEOUT_SECONDS:-15}
+      SCRAPER_MAX_RETRIES: ${SCRAPER_MAX_RETRIES:-2}
+      SCRAPER_MIN_INTERVAL: ${SCRAPER_MIN_INTERVAL:-1.5}
+      SCRAPER_BROWSER_FALLBACK: ${SCRAPER_BROWSER_FALLBACK:-false}
+      SELENIUM_REMOTE_URL: ${SELENIUM_REMOTE_URL:-http://selenium:4444}
+    # Mount source only during development; remove this volume in production.
+    volumes:
+      - ./app:/app
+
+  selenium:
+    image: selenium/standalone-firefox:4.27.0
+    profiles: ["browser"]
+    shm_size: 2gb
+    environment:
+      SE_NODE_MAX_SESSIONS: 1
+    ports:
+      - "4444:4444"
