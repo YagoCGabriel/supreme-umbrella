@@ -485,8 +485,13 @@ class CifraClub:
             ) or exc.diagnostics.get("transport_error") is True
             if denied or not transient:
                 raise
-            self._last_provider = "scrapfly"
-            return self._fetch_scrapfly(url)
+            if self.settings.scrapfly_api_key:
+                self._last_provider = "scrapfly"
+                return self._fetch_scrapfly(url)
+            if self.settings.browser_fallback and self.settings.selenium_remote_url:
+                self._last_provider = "selenium"
+                return self._fetch_with_browser(url)
+            raise
 
     def _fetch_scrapfly(self, url: str) -> str:
         """Fetch HTML through Scrapfly's standard scrape API, without Unblocker."""
@@ -632,7 +637,12 @@ class CifraClub:
                     time.sleep(min(2 ** attempt, 4))
         if isinstance(last_error, UpstreamError) and last_error.diagnostics:
             raise last_error
-        if self.settings.browser_fallback and self.settings.selenium_remote_url:
+        if (
+            self.settings.provider == "httpx"
+            and self.settings.browser_fallback
+            and self.settings.selenium_remote_url
+        ):
+            self._last_provider = "selenium"
             return self._fetch_with_browser(url)
         raise UpstreamError(
             f"Não foi possível obter a página via HTTPX ({type(last_error).__name__ if last_error else 'erro desconhecido'}).",
