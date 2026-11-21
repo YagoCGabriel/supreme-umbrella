@@ -174,7 +174,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.errorhandler(UpstreamError)
     def upstream_error(exc: UpstreamError):
-        return jsonify({"error": "upstream_error", "message": str(exc)}), 502
+        payload = {"error": "upstream_error", "message": str(exc)}
+        if exc.diagnostics:
+            payload["diagnostics"] = exc.diagnostics
+        return jsonify(payload), 502
 
     @app.errorhandler(ValueError)
     def invalid_value(exc: ValueError):
