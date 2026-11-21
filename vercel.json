@@ -1,3 +1,4 @@
+
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
@@ -5,7 +6,7 @@
       "root": ".",
       "framework": "flask"
     },
-    "app-2": {
+    "app-two": {
       "root": "app",
       "framework": "flask"
     },
@@ -18,7 +19,7 @@
     {
       "source": "/dashboard/(.*)",
       "destination": {
-        "service": "app-2"
+        "service": "app-two"
       }
     },
     {
