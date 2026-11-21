@@ -73,6 +73,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def health():
         fetch_enabled = os.getenv("CIFRACLUB_FETCH_ENABLED", "false").lower() == "true"
         fetch_authorized = os.getenv("CIFRACLUB_FETCH_AUTHORIZED", "false").lower() == "true"
+        provider_mode = os.getenv("SCRAPER_PROVIDER", "auto").strip().lower()
         return jsonify({
             "status": "ok",
             "version": API_VERSION,
@@ -80,6 +81,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 "parser": "available",
                 "cache": "process-local",
                 "provider_fetch": "enabled" if fetch_enabled and fetch_authorized else "disabled",
+                "provider_mode": provider_mode,
+                "scrapfly_configured": bool(os.getenv("SCRAPFLY_API_KEY")),
+                "scrapfly_render_js": os.getenv("SCRAPFLY_RENDER_JS", "false").lower() == "true",
             },
         })
 
