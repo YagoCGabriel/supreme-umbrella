@@ -17,6 +17,24 @@ API Flask para transformar HTML de páginas musicais em dados estruturados. O pr
 - Testes unitários e de API com HTML fixture sintético.
 - Endpoint legado mantido: `/artists/<artist>/songs/<song>`.
 
+## Deploy em plataformas Flask/WSGI
+
+A aplicação expõe um entrypoint convencional na raiz:
+
+- Módulo: `wsgi.py`
+- Objeto Flask: `app`
+- Referência WSGI: `wsgi:app`
+
+O arquivo `wsgi.py` importa a instância criada em `api.py`. Isso permite que plataformas que procuram automaticamente `wsgi.py` encontrem a aplicação sem depender da descoberta de `api.py`.
+
+Configuração recomendada na plataforma:
+
+- **Root / working directory:** raiz do repositório
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `gunicorn --workers 2 --threads 4 --timeout 30 --bind 0.0.0.0:$PORT wsgi:app`
+
+O `Procfile` já declara esse processo. Se a plataforma permitir configurar manualmente o entrypoint Flask, use `wsgi:app`. Não use `app:app`: há também um diretório de pacote chamado `app/`, então esse nome pode resolver para o pacote em vez do módulo WSGI.
+
 ## Requisitos
 
 - Python 3.12+ ou Docker com Docker Compose v2.
