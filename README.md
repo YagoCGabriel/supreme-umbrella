@@ -87,13 +87,27 @@ Copie `.env.example` para `.env` e ajuste apenas o necessário. O Docker Compose
 | `CACHE_TTL_SECONDS` | `300` | Tempo de cache em segundos; `0` desativa |
 | `CIFRACLUB_FETCH_ENABLED` | `false` | Habilita a tentativa de coleta remota |
 | `CIFRACLUB_FETCH_AUTHORIZED` | `false` | Confirma que o operador possui autorização aplicável |
-| `SCRAPER_TIMEOUT_SECONDS` | `15` | Timeout por chamada |
-| `SCRAPER_MAX_RETRIES` | `2` | Retentativas para falhas transitórias |
+| `SCRAPER_PROVIDER` | `auto` | `httpx`, `scrapfly` ou `auto` |
+| `SCRAPER_TIMEOUT_SECONDS` | `15` | Timeout do HTTPX |
+| `SCRAPER_MAX_RETRIES` | `2` | Retentativas HTTPX para falhas transitórias |
 | `SCRAPER_MIN_INTERVAL` | `1.5` | Intervalo mínimo entre requisições no processo |
+| `SCRAPFLY_API_KEY` | vazio | Chave privada do Scrapfly; nunca versionar |
+| `SCRAPFLY_RENDER_JS` | `false` | Solicita renderização JavaScript no Scrapfly |
+| `SCRAPFLY_TIMEOUT_SECONDS` | `45` | Timeout da chamada ao Scrapfly |
 | `SCRAPER_BROWSER_FALLBACK` | `false` | Permite fallback Selenium quando configurado |
 | `SELENIUM_REMOTE_URL` | vazio | URL do Selenium Grid remoto |
 
 A coleta remota somente é ativada quando **as duas** variáveis `CIFRACLUB_FETCH_ENABLED` e `CIFRACLUB_FETCH_AUTHORIZED` são `true`. Essas flags são uma proteção operacional, não uma autorização jurídica.
+
+### Roteamento dos provedores
+
+- `httpx`: usa somente a conexão HTTPX direta.
+- `scrapfly`: usa somente a Web Scraping API do Scrapfly. Requer `SCRAPFLY_API_KEY`.
+- `auto`: tenta HTTPX primeiro e só usa Scrapfly como alternativa para falhas de transporte ou respostas HTTP 5xx. Respostas 401, 403, 429 e 451 são terminais e não acionam outro provedor.
+- `SCRAPFLY_RENDER_JS=true`: habilita renderização JavaScript no serviço externo. Não ativa o recurso Unblocker, não configura proxies e não tenta contornar desafios ou controles de acesso.
+- A chave Scrapfly deve ser configurada como variável secreta no ambiente de deploy (por exemplo, Vercel Project Settings → Environment Variables). Não a coloque no `.env.example`, código ou histórico Git.
+
+O Scrapfly é um serviço externo sujeito a cobrança e aos próprios termos. A integração não concede autorização para coletar conteúdo do Cifra Club; habilite-a somente se houver permissão aplicável do titular da origem. O HTTP 403 que já observamos continua sendo tratado como recusa explícita e **não** aciona fallback automático.
 
 ## Endpoints
 
