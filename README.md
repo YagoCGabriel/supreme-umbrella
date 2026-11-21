@@ -17,6 +17,16 @@ API Flask para transformar HTML de páginas musicais em dados estruturados. O pr
 - Testes unitários e de API com HTML fixture sintético.
 - Endpoint legado mantido: `/artists/<artist>/songs/<song>`.
 
+## Configuração do projeto na Vercel
+
+Este repositório usa múltiplos serviços Vercel declarados em `vercel.json`. Nas configurações do projeto Vercel, selecione **Framework Preset: Services**. O arquivo define explicitamente:
+
+- Serviço `app`, raiz `.`, entrypoint `api:app`.
+- Serviço `app-two`, raiz `app`, entrypoint `api:app`.
+- Serviço `cli`, raiz `cli`.
+
+As regras de rewrite existentes encaminham `/dashboard/*` para `app-two` e os demais caminhos para `app`. Os caminhos recebidos pela aplicação permanecem os caminhos originais, então as rotas Flask precisam corresponder a esses prefixos.
+
 ## Deploy em plataformas Flask/WSGI
 
 A aplicação expõe um entrypoint convencional na raiz:
