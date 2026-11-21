@@ -58,6 +58,16 @@ class ScraperSettings:
     min_request_interval: float = 1.5
     browser_fallback: bool = False
     selenium_remote_url: Optional[str] = None
+    provider: str = "auto"
+    scrapfly_api_key: Optional[str] = None
+    scrapfly_render_js: bool = False
+    scrapfly_timeout_seconds: float = 45.0
+
+    def __post_init__(self) -> None:
+        if self.provider not in {"httpx", "scrapfly", "auto"}:
+            raise ValueError("SCRAPER_PROVIDER deve ser httpx, scrapfly ou auto.")
+        if self.scrapfly_timeout_seconds <= 0:
+            raise ValueError("SCRAPFLY_TIMEOUT_SECONDS deve ser maior que zero.")
 
     @classmethod
     def from_env(cls) -> "ScraperSettings":
@@ -69,6 +79,10 @@ class ScraperSettings:
             min_request_interval=max(0.0, float(os.getenv("SCRAPER_MIN_INTERVAL", "1.5"))),
             browser_fallback=os.getenv("SCRAPER_BROWSER_FALLBACK", "false").lower() == "true",
             selenium_remote_url=os.getenv("SELENIUM_REMOTE_URL"),
+            provider=os.getenv("SCRAPER_PROVIDER", "auto").strip().lower(),
+            scrapfly_api_key=os.getenv("SCRAPFLY_API_KEY") or None,
+            scrapfly_render_js=os.getenv("SCRAPFLY_RENDER_JS", "false").lower() == "true",
+            scrapfly_timeout_seconds=float(os.getenv("SCRAPFLY_TIMEOUT_SECONDS", "45")),
         )
 
 
@@ -382,6 +396,7 @@ class CifraClub:
     def __init__(self, settings: Optional[ScraperSettings] = None, parser: Optional[CifraClubParser] = None):
         self.settings = settings or ScraperSettings.from_env()
         self.parser = parser or CifraClubParser()
+        self._last_provider = "httpx"
 
     @staticmethod
     def build_url(artist: str, song: str) -> str:
@@ -395,6 +410,7 @@ class CifraClub:
         url = self.build_url(artist, song)
         html = self._fetch(url)
         result = self.parser.parse(html, source_url=url)
+        result["extraction"]["provider"] = self._last_provider
         if result["extraction"]["status"] != "success":
             if self.settings.browser_fallback and self.settings.selenium_remote_url:
                 browser_html = self._fetch_with_browser(url)
@@ -446,6 +462,97 @@ class CifraClub:
         return {key: value for key, value in diagnostics.items() if value is not None}
 
     def _fetch(self, url: str) -> str:
+        """Select the configured provider; auto mode only fails over on transient errors.
+
+        Explicit upstream denials (401/403/429/451) are terminal and are never
+        retried through another provider.
+        """
+        mode = self.settings.provider
+        if mode == "scrapfly":
+            self._last_provider = "scrapfly"
+            return self._fetch_scrapfly(url)
+
+        self._last_provider = "httpx"
+        try:
+            return self._fetch_httpx(url)
+        except UpstreamError as exc:
+            if mode != "auto" or not self.settings.scrapfly_api_key:
+                raise
+            status = exc.diagnostics.get("status_code")
+            denied = status in (401, 403, 429, 451)
+            transient = (
+                isinstance(status, int) and status >= 500
+            ) or exc.diagnostics.get("transport_error") is True
+            if denied or not transient:
+                raise
+            self._last_provider = "scrapfly"
+            return self._fetch_scrapfly(url)
+
+    def _fetch_scrapfly(self, url: str) -> str:
+        """Fetch HTML through Scrapfly's standard scrape API, without Unblocker."""
+        self._assert_fetch_allowed()
+        api_key = self.settings.scrapfly_api_key
+        if not api_key:
+            raise ProviderAccessDisabled(
+                "O provedor Scrapfly foi selecionado, mas SCRAPFLY_API_KEY não está configurada."
+            )
+
+        params = {"key": api_key, "url": url}
+        if self.settings.scrapfly_render_js:
+            params["render_js"] = "true"
+            params["wait_for_selector"] = ".cifra_cnt pre, pre"
+
+        try:
+            with httpx.Client(timeout=self.settings.scrapfly_timeout_seconds) as client:
+                response = client.get("https://api.scrapfly.io/scrape", params=params)
+                if response.status_code >= 400:
+                    raise UpstreamError(
+                        f"Scrapfly respondeu com HTTP {response.status_code}.",
+                        diagnostics={
+                            "provider": "scrapfly",
+                            "status_code": response.status_code,
+                        },
+                    )
+                payload = response.json()
+        except UpstreamError:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise UpstreamError(
+                f"Falha na comunicação com Scrapfly ({type(exc).__name__}).",
+                diagnostics={"provider": "scrapfly", "transport_error": True},
+            ) from exc
+
+        result = payload.get("result") if isinstance(payload, dict) else None
+        if not isinstance(result, dict):
+            raise UpstreamError(
+                "A resposta do Scrapfly não contém o objeto 'result'.",
+                diagnostics={"provider": "scrapfly", "invalid_response": True},
+            )
+
+        upstream_status = result.get("status_code")
+        if isinstance(upstream_status, int) and upstream_status >= 400:
+            diagnostics = {
+                "provider": "scrapfly",
+                "upstream_status_code": upstream_status,
+            }
+            if upstream_status == 404:
+                raise SongNotFound("A música não foi encontrada na origem.")
+            raise UpstreamError(
+                f"A origem respondeu com HTTP {upstream_status} via Scrapfly.",
+                diagnostics=diagnostics,
+            )
+
+        html = result.get("content")
+        if not isinstance(html, str) or not html.strip():
+            raise UpstreamError(
+                "Scrapfly não retornou conteúdo HTML utilizável.",
+                diagnostics={"provider": "scrapfly", "invalid_response": True},
+            )
+        if len(html.encode("utf-8")) > MAX_HTML_BYTES:
+            raise UpstreamError("A resposta do Scrapfly ultrapassou o limite de 2 MiB.")
+        return html
+
+    def _fetch_httpx(self, url: str) -> str:
         self._assert_fetch_allowed()
         last_error: Optional[Exception] = None
         headers = {
@@ -527,7 +634,10 @@ class CifraClub:
             raise last_error
         if self.settings.browser_fallback and self.settings.selenium_remote_url:
             return self._fetch_with_browser(url)
-        raise UpstreamError(f"Não foi possível obter a página: {last_error or 'erro desconhecido'}")
+        raise UpstreamError(
+            f"Não foi possível obter a página via HTTPX ({type(last_error).__name__ if last_error else 'erro desconhecido'}).",
+            diagnostics={"provider": "httpx", "transport_error": True},
+        )
 
     def _fetch_with_browser(self, url: str) -> str:
         self._assert_fetch_allowed()
