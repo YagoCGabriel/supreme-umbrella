@@ -515,10 +515,11 @@ class CifraClub:
                     raise
                 except (httpx.HTTPError, UpstreamError) as exc:
                     last_error = exc
-                    # Provider refusals/rate limits/server responses are terminal:
-                    # do not retry or switch to a browser-based request path.
+                    # Explicit denials and rate limits are terminal. Do not retry
+                    # them or switch to a browser-based request path.
                     if isinstance(exc, UpstreamError) and exc.diagnostics:
-                        raise
+                        if exc.diagnostics.get("status_code") in (401, 403, 429, 451):
+                            raise
                     if attempt >= self.settings.max_retries:
                         break
                     time.sleep(min(2 ** attempt, 4))
