@@ -25,7 +25,7 @@ API Flask para transformar HTML de páginas musicais em dados estruturados. O pr
 ## Executar localmente
 
 ```bash
-cd cifraclub-api-main
+cd supreme-umbrella
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r app/requirements.txt
